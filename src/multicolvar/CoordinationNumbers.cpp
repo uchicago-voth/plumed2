@@ -1,5 +1,5 @@
 /* +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-   Copyright (c) 2012-2019 The plumed team
+   Copyright (c) 2012-2018 The plumed team
    (see the PEOPLE file at the root of the distribution for a list of names)
 
    See http://www.plumed.org for more information.
@@ -36,7 +36,7 @@ namespace multicolvar {
 //+PLUMEDOC MCOLVAR COORDINATIONNUMBER
 /*
 Calculate the coordination numbers of atoms so that you can then calculate functions of the distribution of
- coordination numbers such as the minimum, the number less than a certain quantity and so on.
+coordination numbers such as the minimum, the number less than a certain quantity and so on.
 
 To make the calculation of coordination numbers differentiable the following function is used:
 
@@ -84,6 +84,7 @@ class CoordinationNumbers : public MultiColvarBase {
 private:
   double rcut2;
   int r_power;
+  double r_inner;
   SwitchingFunction switchingFunction;
 public:
   static void registerKeywords( Keywords& keys );
@@ -103,9 +104,10 @@ void CoordinationNumbers::registerKeywords( Keywords& keys ) {
   keys.add("compulsory","MM","0","The m parameter of the switching function; 0 implies 2*NN");
   keys.add("compulsory","D_0","0.0","The d_0 parameter of the switching function");
   keys.add("compulsory","R_0","The r_0 parameter of the switching function");
+  keys.add("compulsory","R_INNER","0.0","Inner cutoff of the switching function");
   keys.add("optional","R_POWER","Multiply the coordination number function by a power of r, "
            "as done in White and Voth (see note above, default: no)");
-  keys.add("optional","SWITCH","This keyword is used if you want to employ an alternative to the continuous switching function defined above. "
+  keys.add("optional","SWITCH","This keyword is used if you want to employ an alternative to the continuous swiching function defined above. "
            "The following provides information on the \\ref switchingfunction that are available. "
            "When this keyword is present you no longer need the NN, MM, D_0 and R_0 keywords.");
   // Use actionWithDistributionKeywords
@@ -129,9 +131,9 @@ CoordinationNumbers::CoordinationNumbers(const ActionOptions&ao):
     double r_0=-1.0, d_0; int nn, mm;
     parse("NN",nn); parse("MM",mm);
     parse("R_0",r_0); parse("D_0",d_0);
+    parse("R_INNER",r_inner);
     if( r_0<0.0 ) error("you must set a value for R_0");
     switchingFunction.set(nn,mm,r_0,d_0);
-
   }
   log.printf("  coordination of central atom and those within %s\n",( switchingFunction.description() ).c_str() );
 
@@ -167,18 +169,20 @@ double CoordinationNumbers::compute( const unsigned& tindex, AtomValuePack& myat
          d2>epsilon ) {
 
       sw = switchingFunction.calculateSqr( d2, dfunc );
-      if(r_power > 0) {
-        d = sqrt(d2); raised = pow( d, r_power - 1 );
-        accumulateSymmetryFunction( 1, i, sw * raised * d,
-                                    (dfunc * d * raised + sw * r_power) * distance,
-                                    (-dfunc * d * raised - sw * r_power) * Tensor(distance, distance),
-                                    myatoms );
-      } else {
-        accumulateSymmetryFunction( 1, i, sw, (dfunc)*distance, (-dfunc)*Tensor(distance,distance), myatoms );
+      d = sqrt(d2); 
+      if(d > r_inner) {	
+        if(r_power > 0) {
+          raised = pow( d, r_power - 1 );
+          accumulateSymmetryFunction( 1, i, sw * raised * d,
+                                      (dfunc * d * raised + sw * r_power * (raised/d)) * distance,
+                                      (-dfunc * d * raised - sw * r_power * (raised/d)) * Tensor(distance, distance),
+                                      myatoms );
+        } else {
+          accumulateSymmetryFunction( 1, i, sw, (dfunc)*distance, (-dfunc)*Tensor(distance,distance), myatoms );
+        }
       }
     }
   }
-
   return myatoms.getValue(1);
 }
 
